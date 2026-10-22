@@ -13,7 +13,9 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Anticiper la campagne agricole · Burkina Faso", page_icon="🌾", layout="wide")
-DATA = Path(__file__).parent / "data"
+ICI = Path(__file__).parent
+# Les CSV peuvent être dans un dossier data/ ou directement à côté de app.py
+DATA = ICI / "data" if (ICI / "data").is_dir() else ICI
 
 VERT, TERRE, GRIS, OR = "#2F6B4F", "#A8470F", "#9A948A", "#C9962B"
 CEREALES = ["maïs", "mil", "sorgho", "riz"]
