@@ -160,7 +160,7 @@ def carte(df, valeur, titre, echelle, format_valeur=".0f", unite="", hauteur=430
         lookup="properties.fnid", from_=alt.LookupData(d, "fnid", champs)
     ).encode(
         color=alt.Color(f"{valeur}:Q", scale=echelle, title=titre,
-                        legend=alt.Legend(orient="bottom", gradientLength=260, format=format_valeur)),
+                        legend=alt.Legend(orient="bottom", gradientLength=260, format=format_valeur, titleLimit=500)),
         tooltip=[alt.Tooltip("nom:N", title="province"), alt.Tooltip(f"{valeur}:Q", title=titre, format=format_valeur)],
     ).transform_filter(f"isValid(datum['{valeur}'])")
     couches = [fond, couche]
@@ -196,6 +196,12 @@ HarvestStat Africa, FAOSTAT, CHIRPS, ERA5-Land, MODIS, ESA WorldCover, et Enquê
 @st.cache_data
 def rendements_futurs():
     f = lire("rendements_previsions_2024_2025.csv")
+    if (DATA / "rendements_previsions_2026.csv").exists():
+        f26 = lire("rendements_previsions_2026.csv")
+        # on garde la prévision la plus tardive disponible (fin septembre si elle existe)
+        rang = f26["date"].map({"fin août": 0, "fin septembre": 1})
+        f26 = f26[rang == rang.max()][["fnid", "cereale", "annee", "ref5", "prevu", "ecart_pct"]]
+        f = pd.concat([f, f26], ignore_index=True)
     t = lire("rendements_tests_2016_2023.csv")
     poids = t[t["date"] == "fin septembre"].groupby(["fnid", "cereale"])["superficie_ha"].mean().rename("poids")
     return f.join(poids, on=["fnid", "cereale"])
@@ -210,10 +216,24 @@ def resume_saison(annee):
     return par_prov.rename("ecart").to_frame()
 
 
+NOMS_DECADES = {18: "fin juin", 19: "10 juillet", 20: "20 juillet", 21: "fin juillet", 22: "10 août", 23: "20 août",
+                24: "fin août", 25: "10 septembre", 26: "20 septembre", 27: "fin septembre", 28: "10 octobre",
+                29: "20 octobre", 30: "fin octobre"}
+
+
+def secheresse_2026():
+    return lire("secheresse_2026.csv") if (DATA / "secheresse_2026.csv").exists() else None
+
+
+def derniere_campagne():
+    return int(rendements_futurs()["annee"].max())
+
+
 # ------------------------------------------------------------------ pages
 def page_accueil():
     ruban()
-    saison = resume_saison(2025)
+    campagne = derniere_campagne()
+    saison = resume_saison(campagne)
     n_plus = int((saison["ecart"] > 0).sum())
     with st.container(key="hero"):
         g, d = st.columns([5, 6], gap="large")
@@ -221,7 +241,7 @@ def page_accueil():
             st.markdown("<h1>Anticiper la campagne agricole au Burkina Faso</h1>", unsafe_allow_html=True)
             st.markdown('<p class="sous">Prix des céréales, sécheresse et rendements : des prévisions par province, '
                         'faites avant la récolte, à partir de données ouvertes.</p>', unsafe_allow_html=True)
-            st.markdown(f'<p class="constat">Campagne 2025 : rendements attendus au-dessus de la moyenne récente '
+            st.markdown(f'<p class="constat">Campagne {campagne} : rendements attendus au-dessus de la moyenne récente '
                         f'dans {n_plus} provinces sur {len(saison)}.</p>', unsafe_allow_html=True)
             st.markdown('<p class="legende">Écart entre le rendement prévu (maïs, mil, sorgho, riz, pondérés par les '
                         'surfaces) et la moyenne des cinq années précédentes.</p>', unsafe_allow_html=True)
@@ -237,6 +257,7 @@ def page_accueil():
     depuis, cible = p3["date"].iloc[0], p3["date_cible"].iloc[0]
     s = lire("secheresse_probabilites.csv")
     s25 = s[(s["annee"] == s["annee"].max()) & (s["decade"] == 24)]
+    s26 = secheresse_2026()
     syn = lire("contrefactuel_synthese.csv")
 
     a, b = st.columns(2, gap="medium")
@@ -247,19 +268,26 @@ def page_accueil():
                 "Maïs, mil et sorgho ; intervalle à 80 % sur chaque marché.")
         st.page_link(PAGES["prix"], label="Voir les prix par marché", icon=":material/storefront:")
     with b:
-        reponse("neutre", f"La saison {int(s25['annee'].iloc[0])} a-t-elle manqué d'eau ?",
-                f"{int((s25['p_cumul'] >= 0.3).sum())} provinces en alerte fin août, "
-                f"{int(s25['y'].sum())} sécheresses observées",
-                "Probabilité que la pluie de mai à octobre finisse nettement sous la normale, mise à jour à chaque décade.")
+        if s26 is not None:
+            dern = s26[s26["decade"] == s26["decade"].max()]
+            n_al = int((dern["p_cumul"] >= 0.3).sum())
+            reponse("mauvaise" if n_al >= 5 else "neutre", "La saison 2026 manque-t-elle d'eau ?",
+                    f"{n_al} province{'s' if n_al > 1 else ''} en alerte au {NOMS_DECADES[int(dern['decade'].iloc[0])]}",
+                    f"Pluie depuis le 1er mai : {fr(dern['pct_normale'].median())} % de la normale (médiane des provinces).")
+        else:
+            reponse("neutre", f"La saison {int(s25['annee'].iloc[0])} a-t-elle manqué d'eau ?",
+                    f"{int((s25['p_cumul'] >= 0.3).sum())} provinces en alerte fin août, "
+                    f"{int(s25['y'].sum())} sécheresses observées",
+                    "Probabilité que la pluie de mai à octobre finisse nettement sous la normale, mise à jour à chaque décade.")
         st.page_link(PAGES["secheresse"], label="Suivre la saison décade par décade", icon=":material/water_drop:")
     st.write("")
     c, e = st.columns(2, gap="medium")
     with c:
         f = rendements_futurs()
-        q = f[(f["annee"] == 2025) & (f["cereale"] == "maïs")].dropna(subset=["poids"])
+        q = f[(f["annee"] == campagne) & (f["cereale"] == "maïs")].dropna(subset=["poids"])
         ecart_mais = (q["prevu"] * q["poids"]).sum() / (q["ref5"] * q["poids"]).sum() * 100 - 100
         reponse("bonne" if ecart_mais > 0 else "mauvaise", "Quel rendement attendre avant la récolte ?",
-                f"Maïs 2025 : {signe(ecart_mais)} % par rapport à la moyenne récente",
+                f"Maïs {campagne} : {signe(ecart_mais)} % par rapport à la moyenne récente",
                 "Prévision de fin septembre. La chaleur pèse autant que la pluie ; la végétation (NDVI) est le meilleur indice.")
         st.page_link(PAGES["rendements"], label="Voir les rendements par province", icon=":material/grass:")
     with e:
@@ -362,14 +390,96 @@ def page_secheresse():
     ruban()
     st.markdown("# Sécheresse en cours de saison")
     st.markdown("À chaque fin de décade, la probabilité que la pluie de mai à octobre finisse nettement sous la "
-                "normale de la province. Chaque saison est rejouée par un modèle qui ne l'avait pas vue.")
+                "normale de la province.")
+    s26 = secheresse_2026()
+    if s26 is None:
+        secheresse_passees()
+    else:
+        onglet26, onglet_passe = st.tabs(["Campagne 2026", "Saisons 1991-2025 rejouées"])
+        with onglet26:
+            secheresse_campagne_2026(s26)
+        with onglet_passe:
+            secheresse_passees()
+    pied()
+
+
+def secheresse_campagne_2026(s26):
+    dates = sorted(s26["decade"].unique())
+    d = st.select_slider("Date de décision", options=dates, value=dates[-1],
+                         format_func=lambda k: NOMS_DECADES.get(int(k), str(k)), key="d26")
+    g = s26[s26["decade"] == d].set_index("fnid")
+    complete = "indice_pluie_provisoire" in g.columns and d == 30
+    if complete:
+        g["seche"] = (g["indice_pluie_provisoire"] < -1).astype(int)
+    n_al = int((g["p_cumul"] >= 0.3).sum())
+    med = g["pct_normale"].median()
+
+    a, b = st.columns([3, 2], gap="large")
+    with a:
+        st.altair_chart(carte(g, "p_cumul", "probabilité de saison sèche",
+                              alt.Scale(domain=[0, 1], range=[NEUTRE, MIL, LATERITE]), ".0%",
+                              contour_col="seche" if complete else None, hauteur=470), width="stretch")
+    with b:
+        if complete:
+            n_sec = int(g["seche"].sum())
+            reponse("mauvaise" if n_sec else "bonne", "Saison 2026 complète (indice provisoire)",
+                    f"{n_sec} province{'s' if n_sec > 1 else ''} en sécheresse",
+                    "Pluie de mai à octobre sous −1 écart-type de la normale. Contour épais sur la carte.")
+        else:
+            reponse("mauvaise" if n_al >= 5 else "neutre", f"Saison 2026, {NOMS_DECADES.get(int(d), d)}",
+                    f"{n_al} province{'s' if n_al > 1 else ''} au-dessus de 30 %",
+                    f"Pluie tombée depuis le 1er mai : {fr(med)} % de la normale (médiane des provinces). "
+                    "Sans information, on attendrait environ 15 % de risque partout.")
+        top = g.sort_values("p_cumul", ascending=False).head(8).reset_index()
+        top["province"] = top["fnid"].map(nom_province)
+        st.dataframe(top[["province", "p_cumul", "pct_normale"]], hide_index=True, width="stretch",
+                     column_config={"province": st.column_config.TextColumn("province", width="medium"),
+                                    "p_cumul": st.column_config.ProgressColumn("probabilité", format="percent",
+                                                                               min_value=0, max_value=1, width="small"),
+                                    "pct_normale": st.column_config.NumberColumn("% normale", format="%.0f", width="small")})
+
+    st.markdown("## Le manque d'eau en millimètres")
+    st.markdown("Les agriculteurs jugent la saison sur la quantité d'eau reçue, pas sur l'écart à la normale. "
+                "Cette carte montre la pluie tombée depuis le 1er mai en pourcentage de la normale de la même date.")
+    g2, d2 = st.columns([3, 2], gap="large")
+    with g2:
+        st.altair_chart(carte(g, "pct_normale", "pluie depuis le 1er mai (% de la normale)",
+                              alt.Scale(domain=[60, 100, 140], range=[LATERITE, NEUTRE, HIVERNAGE], clamp=True),
+                              ".0f", hauteur=430), width="stretch")
+    with d2:
+        tab = g.reset_index()
+        tab["province"] = tab["fnid"].map(nom_province)
+        st.dataframe(tab.sort_values("pct_normale")[["province", "pluie_cumul_mm", "pct_normale"]],
+                     hide_index=True, width="stretch", height=430,
+                     column_config={"pluie_cumul_mm": st.column_config.NumberColumn("pluie 2026 (mm)", format="%.0f"),
+                                    "pct_normale": st.column_config.NumberColumn("% normale", format="%.0f")})
+
+    st.markdown("## Une province au fil de la saison 2026")
+    fn = st.selectbox("Province", sorted(s26["fnid"].unique(), key=nom_province), format_func=nom_province, key="p26")
+    q = s26[s26["fnid"] == fn].copy()
+    q["date"] = q["decade"].map(NOMS_DECADES)
+    ordre = [NOMS_DECADES[k] for k in sorted(q["decade"].unique())]
+    seuil = alt.Chart(pd.DataFrame({"y": [0.3]})).mark_rule(color=ENCRE_DOUCE, strokeDash=[4, 4]).encode(y="y:Q")
+    courbe = alt.Chart(q).mark_line(color=LATERITE, strokeWidth=2.5, point=alt.OverlayMarkDef(size=60, color=LATERITE)).encode(
+        x=alt.X("date:N", sort=ordre, title=None, axis=alt.Axis(labelAngle=0)),
+        y=alt.Y("p_cumul:Q", title="probabilité", axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
+        tooltip=["date", alt.Tooltip("p_cumul:Q", format=".0%", title="probabilité"),
+                 alt.Tooltip("pct_normale:Q", format=".0f", title="pluie (% normale)")])
+    st.altair_chart((seuil + courbe).properties(height=260), width="stretch")
+    st.markdown('<p class="note">Modèle de l\'étape 9 (pluie cumulée depuis le 1er mai), appris sur 1991-2025 et appliqué '
+                'aux données CHIRPS de 2026.</p>', unsafe_allow_html=True)
+
+
+def secheresse_passees():
+    st.markdown("Chaque saison passée est rejouée par un modèle qui ne l'avait pas vue : on peut ainsi juger "
+                "la fiabilité des alertes.")
     s = lire("secheresse_probabilites.csv")
     c1, c2 = st.columns([1, 3], gap="large")
     with c1:
-        annee = st.selectbox("Saison", sorted(s["annee"].unique(), reverse=True))
+        annee = st.selectbox("Saison", sorted(s["annee"].unique(), reverse=True), key="saison_passee")
     with c2:
         d = st.select_slider("Date de décision", options=list(DATES_DECISION), value=21,
-                             format_func=lambda k: DATES_DECISION[k])
+                             format_func=lambda k: DATES_DECISION[k], key="d_passee")
     g = s[(s["annee"] == annee) & (s["decade"] == d)].set_index("fnid")
     nb_alerte, nb_obs = int((g["p_cumul"] >= 0.3).sum()), int(g["y"].sum())
 
@@ -394,7 +504,8 @@ def page_secheresse():
                                     "issue": st.column_config.TextColumn("saison finale")})
 
     st.markdown("## Une province au fil de la saison")
-    fn = st.selectbox("Province", sorted(s["fnid"].unique(), key=nom_province), format_func=nom_province)
+    fn = st.selectbox("Province", sorted(s["fnid"].unique(), key=nom_province), format_func=nom_province,
+                      key="p_passee")
     q = s[(s["annee"] == annee) & (s["fnid"] == fn)].copy()
     q["date"] = q["decade"].map(DATES_DECISION)
     seuil = alt.Chart(pd.DataFrame({"y": [0.3]})).mark_rule(color=ENCRE_DOUCE, strokeDash=[4, 4]).encode(y="y:Q")
@@ -417,7 +528,6 @@ def page_secheresse():
   décrivent plutôt une sécheresse **agricole** : leur déclaration suit la pluie en millimètres
   (corrélation −0,70), pas l'écart à la normale (−0,24).
 """)
-    pied()
 
 
 def page_rendements():
@@ -431,7 +541,8 @@ def page_rendements():
     with c1:
         cereale = st.segmented_control("Céréale", CEREALES, default="maïs", key="rdt_cer") or "maïs"
     with c2:
-        annee = st.segmented_control("Campagne", [2024, 2025], default=2025) or 2025
+        campagnes = sorted(f["annee"].unique().astype(int))
+        annee = st.segmented_control("Campagne", campagnes, default=campagnes[-1]) or campagnes[-1]
 
     q = f[(f["cereale"] == cereale) & (f["annee"] == annee)].dropna(subset=["poids"]).set_index("fnid")
     ref = (q["ref5"] * q["poids"]).sum() / q["poids"].sum()
@@ -445,10 +556,16 @@ def page_rendements():
                 f"{fr(pre, 2)} t/ha attendues, {signe((pre / ref - 1) * 100)} %",
                 f"Moyenne récente : {fr(ref, 2)} t/ha. Moyenne nationale pondérée par les surfaces.")
         st.write("")
-        st.markdown('<p class="note">Les chiffres officiels provisoires vont dans le même sens : production '
-                    'céréalière 2024-2025 en hausse de 18 % sur 2023, et 2025-2026 en hausse de 17,6 % sur 2024, '
-                    'dont une partie vient de surfaces cultivées en hausse. Le mil, prévu vers +20 %, est '
-                    'probablement surestimé.</p>', unsafe_allow_html=True)
+        if annee == 2026:
+            st.markdown('<p class="note">Prévision faite avec les données satellites de 2026 (pluie, chaleur, NDVI). '
+                        'La référence est la moyenne 2019-2023, les dernières années publiées par province : si les '
+                        'bonnes récoltes de 2024 et 2025 se confirment, le niveau de 2026 est peut-être sous-estimé. '
+                        'À comparer aux résultats provisoires de la DGESS.</p>', unsafe_allow_html=True)
+        else:
+            st.markdown('<p class="note">Les chiffres officiels provisoires vont dans le même sens : production '
+                        'céréalière 2024-2025 en hausse de 18 % sur 2023, et 2025-2026 en hausse de 17,6 % sur 2024, '
+                        'dont une partie vient de surfaces cultivées en hausse. Le mil, prévu vers +20 %, est '
+                        'probablement surestimé.</p>', unsafe_allow_html=True)
 
     st.markdown("## Le modèle face aux années passées")
     gt = t[(t["cereale"] == cereale) & (t["date"] == "fin septembre")].dropna(subset=["superficie_ha"])
