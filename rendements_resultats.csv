@@ -1,0 +1,9 @@
+date,cereale,lignes_test,erreur_droite,erreur_moyenne5,erreur_A climat,gain_A climat_pct,erreur_B climat + NDVI,gain_B climat + NDVI_pct,mauvaises_annees,detectees_pct,alertes_justes_pct
+fin août,maïs,352,0.35,0.3,0.3,-7.05,0.29,0.48,94,4.26,22.22
+fin août,mil,353,0.34,0.3,0.3,1.33,0.3,1.82,118,16.95,32.26
+fin août,sorgho,350,0.29,0.29,0.29,-1.03,0.29,-1.44,86,6.98,11.11
+fin août,riz,306,0.67,0.57,0.56,2.29,0.56,3.08,65,12.31,30.77
+fin septembre,maïs,352,0.35,0.3,0.3,-3.73,0.29,3.26,94,22.34,27.27
+fin septembre,mil,353,0.34,0.3,0.3,0.28,0.3,2.85,118,41.52,44.95
+fin septembre,sorgho,350,0.29,0.29,0.29,-3.09,0.29,0.36,86,32.56,30.11
+fin septembre,riz,306,0.67,0.57,0.56,4.86,0.55,6.83,65,30.77,39.22

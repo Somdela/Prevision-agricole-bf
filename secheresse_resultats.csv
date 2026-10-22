@@ -1,0 +1,15 @@
+date,methode,AUC,BSS,detection_pct,fausses_alertes_pct
+fin juin,cumul seul,0.6,0.02,1.31,92.683
+fin juin,modèle complet,0.522,-0.183,15.721,83.929
+10 juil.,cumul seul,0.647,0.038,8.297,77.108
+10 juil.,modèle complet,0.546,-0.205,13.974,86.992
+20 juil.,cumul seul,0.69,0.066,20.087,65.926
+20 juil.,modèle complet,0.598,-0.159,22.707,79.116
+fin juillet,cumul seul,0.782,0.137,36.681,62.162
+fin juillet,modèle complet,0.729,-0.031,32.314,70.518
+10 août,cumul seul,0.861,0.287,61.572,46.591
+10 août,modèle complet,0.829,0.15,50.218,54.545
+20 août,cumul seul,0.919,0.426,72.926,41.404
+20 août,modèle complet,0.899,0.321,62.882,43.529
+fin août,cumul seul,0.959,0.543,82.096,30.882
+fin août,modèle complet,0.941,0.455,76.419,36.594
