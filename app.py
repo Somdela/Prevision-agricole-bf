@@ -530,6 +530,65 @@ def secheresse_passees():
 """)
 
 
+def province_en_detail(f, t, cereale, annee):
+    st.markdown("## Une province en détail")
+    provinces_dispo = sorted(f["fnid"].unique(), key=nom_province)
+    fn = st.selectbox("Province", provinces_dispo, format_func=nom_province, key="prov_rdt")
+    nom = nom_province(fn)
+
+    ligne = f[(f["fnid"] == fn) & (f["cereale"] == cereale) & (f["annee"] == annee)]
+    g, d = st.columns([3, 2], gap="large")
+    with d:
+        if ligne.empty:
+            reponse("neutre", f"{nom}, {cereale}, campagne {annee}", "Pas de prévision",
+                    "Cette céréale n'a pas assez d'années de rendement publiées dans cette province.")
+        else:
+            r = ligne.iloc[0]
+            ecart = (r["prevu"] / r["ref5"] - 1) * 100
+            reponse("bonne" if ecart > 0 else "mauvaise", f"{nom}, {cereale}, campagne {annee}",
+                    f"{fr(r['prevu'], 2)} t/ha attendues, {signe(ecart)} %",
+                    f"Moyenne récente de la province : {fr(r['ref5'], 2)} t/ha.")
+        st.write("")
+        toutes = f[(f["fnid"] == fn) & (f["annee"] == annee)].copy()
+        toutes["écart"] = (toutes["prevu"] / toutes["ref5"] - 1) * 100
+        toutes["ordre"] = toutes["cereale"].map({c: i for i, c in enumerate(CEREALES)})
+        st.dataframe(toutes.sort_values("ordre")[["cereale", "ref5", "prevu", "écart"]], hide_index=True, width="stretch",
+                     column_config={"cereale": st.column_config.TextColumn(f"céréale, {annee}"),
+                                    "ref5": st.column_config.NumberColumn("moyenne (t/ha)", format="%.2f"),
+                                    "prevu": st.column_config.NumberColumn("prévu (t/ha)", format="%.2f"),
+                                    "écart": st.column_config.NumberColumn("écart", format="%+.0f %%")})
+    with g:
+        h = t[(t["fnid"] == fn) & (t["cereale"] == cereale) & (t["date"] == "fin septembre")]
+        passe = pd.concat([
+            h[["annee", "rendement_t_ha"]].rename(columns={"rendement_t_ha": "t/ha"}).assign(série="observé"),
+            h[["annee", "prevu_B climat + NDVI"]].rename(columns={"prevu_B climat + NDVI": "t/ha"}).assign(série="prévu fin septembre"),
+        ])
+        fut = f[(f["fnid"] == fn) & (f["cereale"] == cereale)][["annee", "prevu", "ref5"]]
+        futur = pd.concat([fut[["annee", "prevu"]].rename(columns={"prevu": "t/ha"}).assign(série="prévision"),
+                           fut[["annee", "ref5"]].rename(columns={"ref5": "t/ha"}).assign(série="moyenne récente")])
+        d_all = pd.concat([passe, futur]).dropna(subset=["t/ha"])
+        if d_all.empty:
+            st.info(f"Pas de rendement publié pour le {cereale} à {nom}.")
+            return
+        echelle = alt.Scale(domain=["observé", "prévu fin septembre", "prévision", "moyenne récente"],
+                            range=[INDIGO, HIVERNAGE, "#9C7212", "#A7AFBD"])
+        base = alt.Chart(d_all).encode(
+            x=alt.X("annee:O", title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("t/ha:Q", title="t/ha", scale=alt.Scale(zero=False)),
+            color=alt.Color("série:N", title=None, scale=echelle),
+            tooltip=["annee", "série", alt.Tooltip("t/ha:Q", format=".2f")])
+        lignes = base.transform_filter("datum['série'] != 'prévision'").mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=45))
+        points = base.transform_filter("datum['série'] == 'prévision'").mark_point(size=140, filled=True, shape="diamond")
+        choisie = alt.Chart(pd.DataFrame({"annee": [annee]})).mark_rule(color=MIL, strokeWidth=10, opacity=0.18).encode(
+            x=alt.X("annee:O"))
+        st.altair_chart((choisie + lignes + points).properties(
+            height=330, title=f"{cereale.capitalize()} à {nom} : années passées et prévisions"), width="stretch")
+        st.markdown('<p class="note">Bleu nuit : rendement observé. Vert : ce que le modèle prévoyait fin septembre, '
+                    'sans connaître la récolte. Losanges : prévisions des campagnes à venir. La bande dorée marque la '
+                    'campagne choisie.</p>', unsafe_allow_html=True)
+
+
+
 def page_rendements():
     ruban()
     st.markdown("# Rendements avant la récolte")
@@ -566,6 +625,8 @@ def page_rendements():
                         'céréalière 2024-2025 en hausse de 18 % sur 2023, et 2025-2026 en hausse de 17,6 % sur 2024, '
                         'dont une partie vient de surfaces cultivées en hausse. Le mil, prévu vers +20 %, est '
                         'probablement surestimé.</p>', unsafe_allow_html=True)
+
+    province_en_detail(f, t, cereale, annee)
 
     st.markdown("## Le modèle face aux années passées")
     gt = t[(t["cereale"] == cereale) & (t["date"] == "fin septembre")].dropna(subset=["superficie_ha"])
